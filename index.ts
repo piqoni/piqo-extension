@@ -88,8 +88,22 @@ export default function (pi: ExtensionAPI) {
 	});
 
    /**
+	 * Strip inline code spans (backtick-delimited) from a line.
+	 * Handles single and double backtick delimiters.
+	 */
+	function stripInlineCode(line: string): string {
+		// Remove `` ... `` first (double-backtick spans), then ` ... `
+		return line.replace(/``[^`]*``/g, "").replace(/`[^`]*`/g, "");
+	}
+
+	/**
 	 * Scan a file for @piqo markers. Markers are considered pending until the
 	 * agent removes the human prompt line/tag from the file.
+	 *
+	 * Skips:
+	 *  - Lines inside fenced code blocks (``` ... ```)
+	 *  - Indented code lines (4+ spaces or leading tab)
+	 *  - @piqo inside inline code spans (`@piqo ...`)
 	 */
 	function findMarkers(filePath: string): PiqoMarker[] {
 		let content: string;
@@ -101,10 +115,26 @@ export default function (pi: ExtensionAPI) {
 
 		const lines = content.split("\n");
 		const markers: PiqoMarker[] = [];
+		let inCodeFence = false;
 
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
-			const piqoMatch = line.match(/@piqo\b(.*)/);
+
+			// Toggle fenced code block state (``` or ~~~)
+			if (/^\s*(```|~~~)/.test(line)) {
+				inCodeFence = !inCodeFence;
+				continue;
+			}
+
+			// Skip lines inside code fences
+			if (inCodeFence) continue;
+
+			// Skip indented code blocks (4+ spaces or leading tab)
+			if (/^(\t| {4})/.test(line)) continue;
+
+			// Strip inline code spans before matching @piqo
+			const stripped = stripInlineCode(line);
+			const piqoMatch = stripped.match(/@piqo\b(.*)/);
 			if (!piqoMatch) continue;
 
 			markers.push({
